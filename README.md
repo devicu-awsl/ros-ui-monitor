@@ -71,9 +71,47 @@ rb5009-monitor.exe                 Phase A: this PC only (127.0.0.1:8000)
 rb5009-monitor.exe --lan           Phase B: LAN mode for tablets and phones
 rb5009-monitor.exe --host 0.0.0.0 --port 8000
 rb5009-monitor.exe --no-browser
+rb5009-monitor.exe --chooser       Pick a browser / copy the URL (see below)
 rb5009-monitor.exe --hash-password Generate a dashboard password hash
 rb5009-monitor.exe --config "C:\ProgramData\RB5009Monitor\config.env"
 ```
+
+### Browser chooser window (optional)
+
+`--chooser` opens a small Qt window instead of launching the default browser:
+
+![Browser chooser window](others/launcher-lan.png)
+
+It lists the browsers Windows reports as installed (read from
+`HKEY_*\SOFTWARE\Clients\StartMenuInternet`, with the default browser promoted
+to the top), and gives each URL a **Copy URL** button. In LAN mode the LAN URL
+is shown as well, which is the one to send to a tablet or phone. Closing the
+window leaves the server running; the browser is started detached, so it stays
+open too.
+
+The LAN row also has a **QR Code** button. It shows the code at the bottom of
+the window, so a phone or tablet can open the dashboard by pointing its camera
+at the screen instead of anyone typing an IP address:
+
+![Browser chooser window with the QR code shown](others/launcher-qr.png)
+
+The code is always drawn dark-on-light inside its own light panel, because
+inverted QR codes are unreliable for phone cameras to read.
+
+This needs PySide6 and segno, both optional extras because Qt is large:
+
+```bash
+pip install ".[gui]"
+```
+
+Executables built without it still accept `--chooser` and print an
+instruction rather than failing obscurely. To build the executable *with* the
+chooser, set `RBMON_BUILD_GUI=1` before running PyInstaller. Measured sizes:
+
+| Build | Command | Size |
+| --- | --- | --- |
+| Default | `pyinstaller rb5009-monitor.spec` | 16 MB |
+| With chooser | `RBMON_BUILD_GUI=1 pyinstaller rb5009-monitor.spec` | 73 MB |
 
 From source:
 

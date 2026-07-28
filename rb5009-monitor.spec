@@ -12,9 +12,18 @@
 # Phase A/B serve a plain static dashboard, so app/static is the only data
 # directory to bundle; there is no template directory.
 
+#
+# The --chooser launcher window needs PySide6, which adds tens of megabytes.
+# PyInstaller follows imports inside function bodies, so it would bundle Qt
+# into every build unless it is excluded explicitly. Set RBMON_BUILD_GUI=1 to
+# produce the larger executable that includes the launcher.
+
 import os
 
 ROOT = os.path.abspath(SPECPATH)  # noqa: F821 - injected by PyInstaller
+
+WITH_GUI = os.environ.get("RBMON_BUILD_GUI", "").strip().lower() in ("1", "true", "yes")
+EXCLUDES = ["tkinter"] if WITH_GUI else ["tkinter", "PySide6", "shiboken6", "segno"]
 
 a = Analysis(
     [os.path.join(ROOT, "run.py")],
@@ -35,7 +44,7 @@ a = Analysis(
         "uvicorn.lifespan",
         "uvicorn.lifespan.on",
     ],
-    excludes=["tkinter"],
+    excludes=EXCLUDES,
     noarchive=False,
 )
 

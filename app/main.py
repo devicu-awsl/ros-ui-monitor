@@ -102,18 +102,24 @@ def _lan_address() -> str:
             return "<this PC's LAN address>"
 
 
-def _open_browser_when_ready(url: str, timeout: float = 30.0) -> None:
+def _wait_until_ready(url: str, timeout: float = 30.0) -> bool:
+    """Poll /readyz until the collector is up, so the UI never shows a dead link."""
     deadline = time.time() + timeout
     ready_url = url.rstrip("/") + "/readyz"
     while time.time() < deadline:
         try:
             with urllib.request.urlopen(ready_url, timeout=2) as resp:
                 if resp.status == 200:
-                    webbrowser.open(url)
-                    return
+                    return True
         except Exception:
             pass
         time.sleep(0.5)
+    return False
+
+
+def _open_browser_when_ready(url: str, timeout: float = 30.0) -> None:
+    if _wait_until_ready(url, timeout):
+        webbrowser.open(url)
 
 
 def _hash_password_interactively() -> int:
@@ -141,6 +147,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="keep config.env and the database next to the executable instead of "
                              "in ProgramData (implied when a config.env sits beside the exe)")
     parser.add_argument("--no-browser", action="store_true", help="do not open the browser on startup")
+    parser.add_argument("--chooser", action="store_true",
+                        help="show a window to pick which installed browser to open, and to copy "
+                             "the local and LAN URLs (needs the optional PySide6 extra)")
     parser.add_argument("--hash-password", action="store_true",
                         help="prompt for a dashboard password and print its hash, then exit")
     parser.add_argument("--version", action="version", version=f"rb5009-monitor {__version__}")
@@ -188,8 +197,9 @@ def main(argv: list[str] | None = None) -> int:
 
     local_url = f"http://127.0.0.1:{settings.bind_port}/" if settings.lan_mode \
         else f"http://{settings.bind_host}:{settings.bind_port}/"
+    lan_url = f"http://{_lan_address()}:{settings.bind_port}/" if settings.lan_mode else None
     if settings.lan_mode:
-        log.info("LAN mode: other devices can connect at http://%s:%d/", _lan_address(), settings.bind_port)
+        log.info("LAN mode: other devices can connect at %s", lan_url)
         log.info("Allow rb5009-monitor through Windows Firewall on the private network if prompted.")
         if settings.auth_enabled:
             log.info("Dashboard authentication is enabled for user %r.", settings.auth_username)
@@ -197,10 +207,26 @@ def main(argv: list[str] | None = None) -> int:
             log.warning("LAN mode without a dashboard password: any device on the LAN can open the "
                         "dashboard. Set RBMON_AUTH_PASSWORD_HASH (see --hash-password) to require login.")
 
+    import uvicorn
+
+    if args.chooser:
+        try:
+            from .launcher import run_launcher
+        except ImportError:
+            print("--chooser needs PySide6, which is not installed.\n"
+                  'Install it with:  pip install ".[gui]"', file=sys.stderr)
+            return 2
+        # Qt must own the main thread, so the server runs alongside it. The
+        # server thread is a daemon: closing the window ends the process.
+        server = uvicorn.Server(uvicorn.Config(
+            app, host=settings.bind_host, port=settings.bind_port,
+            log_level=settings.log_level.lower()))
+        threading.Thread(target=server.run, daemon=True, name="uvicorn").start()
+        _wait_until_ready(local_url)
+        return run_launcher(local_url, lan_url, settings.auth_enabled)
+
     if settings.open_browser:
         threading.Thread(target=_open_browser_when_ready, args=(local_url,), daemon=True).start()
-
-    import uvicorn
 
     uvicorn.run(app, host=settings.bind_host, port=settings.bind_port,
                 log_level=settings.log_level.lower())
