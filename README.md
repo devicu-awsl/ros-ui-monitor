@@ -8,6 +8,23 @@ UI for MikroTik RouterOS diagnostic and monitoring tools. (Only test on RB5009)
 RB5009, built as a modular Python project (FastAPI + Uvicorn + HTTPX + SQLite)
 and packaged into a single executable with PyInstaller.
 
+### Screenshots
+
+The dashboard on a desktop browser:
+
+![Dashboard on a desktop browser](others/dashboard-desktop.png)
+
+The same page at 200% browser zoom and on a phone. Sizing is fluid, so text,
+spacing and the chart scale together instead of the layout breaking or the
+page scrolling sideways:
+
+| 200% browser zoom | Phone |
+| --- | --- |
+| ![Dashboard at 200% browser zoom](others/dashboard-zoom-200.png) | ![Dashboard on a phone](others/dashboard-phone.png) |
+
+> These screenshots were captured with sample data, not a live RB5009, so the
+> router name, rates and sensor readings shown are illustrative.
+
 ### Scope
 
 Only two phases are in scope, and **both ship as the same PyInstaller

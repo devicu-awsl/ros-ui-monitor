@@ -61,6 +61,15 @@ function handleUnauthorized(resp) {
   return false;
 }
 
+/* Meters are driven by transform, not width: width would relayout the page on
+   every frame of every update. */
+function setMeter(id, percent, hotAbove) {
+  const bar = document.getElementById(id);
+  const value = Math.max(0, Math.min(100, percent || 0));
+  bar.style.transform = `scaleX(${value / 100})`;
+  bar.classList.toggle("hot", value > hotAbove);
+}
+
 async function loadInfo() {
   try {
     const resp = await fetch("/api/v1/info");
@@ -95,9 +104,7 @@ function renderResource() {
   document.getElementById("cpu-load").textContent = load == null ? "—" : load.toFixed(0) + "%";
   document.getElementById("cpu-info").textContent =
     `${r.cpu_count || "?"} cores @ ${r.cpu_frequency_mhz || "?"} MHz`;
-  const cpuBar = document.getElementById("cpu-bar");
-  cpuBar.style.width = (load || 0) + "%";
-  cpuBar.classList.toggle("hot", (load || 0) > 80);
+  setMeter("cpu-bar", load, 80);
 
   if (r.total_memory_bytes != null && r.free_memory_bytes != null) {
     const used = r.total_memory_bytes - r.free_memory_bytes;
@@ -105,9 +112,7 @@ function renderResource() {
     document.getElementById("mem-used").textContent = fmtBytes(used);
     document.getElementById("mem-info").textContent =
       `of ${fmtBytes(r.total_memory_bytes)} (${pct.toFixed(0)}%)`;
-    const memBar = document.getElementById("mem-bar");
-    memBar.style.width = pct + "%";
-    memBar.classList.toggle("hot", pct > 85);
+    setMeter("mem-bar", pct, 85);
   }
 }
 
@@ -125,6 +130,7 @@ function renderHealth() {
     name.className = "name";
     name.textContent = s.name;
     const val = document.createElement("span");
+    val.className = "value";
     val.textContent = s.value != null ? `${s.value}${s.unit === "C" ? " °C" : " " + (s.unit || "")}` : s.raw_value;
     row.append(name, val);
     list.appendChild(row);
@@ -188,15 +194,28 @@ function drawChart() {
   const canvas = document.getElementById("chart");
   const ctx = canvas.getContext("2d");
   const dpr = window.devicePixelRatio || 1;
-  const cssW = canvas.clientWidth, cssH = 220;
-  canvas.width = cssW * dpr;
-  canvas.height = cssH * dpr;
-  ctx.scale(dpr, dpr);
+
+  // Take the size from CSS layout, so the chart follows the fluid height and
+  // any browser zoom instead of a hardcoded pixel box.
+  const cssW = canvas.clientWidth;
+  const cssH = canvas.clientHeight;
+  if (cssW === 0 || cssH === 0) return;   // hidden or not laid out yet
+
+  // Only touch the bitmap size when it actually changed: assigning to
+  // canvas.width/height clears the canvas and is not free.
+  const bitmapW = Math.round(cssW * dpr), bitmapH = Math.round(cssH * dpr);
+  if (canvas.width !== bitmapW || canvas.height !== bitmapH) {
+    canvas.width = bitmapW;
+    canvas.height = bitmapH;
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);  // absolute, so repeat draws don't compound
   ctx.clearRect(0, 0, cssW, cssH);
 
+  // Scale the plot furniture with the root font size so it stays legible at
+  // any zoom level rather than shrinking to nothing.
+  const rootPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  const labelPx = Math.max(9, rootPx * 0.7);
   const data = state.series.get(state.selectedIface) || [];
-  const padL = 64, padR = 10, padT = 10, padB = 22;
-  const w = cssW - padL - padR, h = cssH - padT - padB;
   const now = Date.now() / 1000;
   const t0 = now - WINDOW_SECONDS;
 
@@ -207,26 +226,47 @@ function drawChart() {
   const css = getComputedStyle(document.documentElement);
   ctx.strokeStyle = css.getPropertyValue("--border").trim();
   ctx.fillStyle = css.getPropertyValue("--muted").trim();
-  ctx.font = "11px system-ui, sans-serif";
+  ctx.font = `${labelPx}px system-ui, -apple-system, sans-serif`;
   ctx.lineWidth = 1;
 
+  // Measure the axis labels rather than guessing a gutter width: a guess
+  // clips the widest value (e.g. "10.6 Mbps" losing its leading digit).
+  const yLabels = [];
+  for (let g = 0; g <= 4; g++) yLabels.push(fmtRate(max * (1 - g / 4)));
+  const labelGap = rootPx * 0.45;
+  const padL = Math.max(...yLabels.map(t => ctx.measureText(t).width)) + labelGap * 2;
+  const padR = rootPx * 0.6;
+  const padT = rootPx * 0.6;
+  const padB = labelPx * 2;
+  const w = cssW - padL - padR, h = cssH - padT - padB;
+  if (w <= 0 || h <= 0) return;
+
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
   for (let g = 0; g <= 4; g++) {
     const y = padT + (h * g) / 4;
     ctx.beginPath();
     ctx.moveTo(padL, y);
     ctx.lineTo(padL + w, y);
     ctx.stroke();
-    ctx.fillText(fmtRate(max * (1 - g / 4)), 4, y + 4);
+    ctx.fillText(yLabels[g], padL - labelGap, y);
   }
-  for (let g = 0; g <= 5; g++) {
-    const x = padL + (w * g) / 5;
-    const t = t0 + (WINDOW_SECONDS * g) / 5;
-    ctx.fillText(fmtTime(t), x - 20, cssH - 6);
+
+  // Thin out time labels on narrow viewports so they never collide.
+  ctx.textBaseline = "alphabetic";
+  const ticks = w < rootPx * 22 ? 2 : w < rootPx * 34 ? 3 : 5;
+  for (let g = 0; g <= ticks; g++) {
+    const x = padL + (w * g) / ticks;
+    const t = t0 + (WINDOW_SECONDS * g) / ticks;
+    ctx.textAlign = g === 0 ? "left" : g === ticks ? "right" : "center";
+    ctx.fillText(fmtTime(t), x, cssH - labelPx * 0.4);
   }
+  ctx.textAlign = "left";
 
   const drawLine = (key, colorVar) => {
     ctx.strokeStyle = css.getPropertyValue(colorVar).trim();
-    ctx.lineWidth = 1.8;
+    ctx.lineWidth = Math.max(1.5, dpr >= 2 ? 1.6 : 1.8);
+    ctx.lineJoin = "round";
     ctx.beginPath();
     let started = false;
     for (const p of data) {
@@ -355,9 +395,42 @@ function connect() {
   };
 }
 
+/* ---------- redraw triggers ----------
+ * The canvas has no automatic layout, so it must be told to redraw whenever
+ * its box or the device pixel ratio changes: window resize alone misses
+ * container-only changes (a scrollbar appearing, the events list growing)
+ * and monitor-to-monitor DPI changes. */
+
+let redrawQueued = false;
+function scheduleRedraw() {
+  if (redrawQueued) return;
+  redrawQueued = true;
+  requestAnimationFrame(() => { redrawQueued = false; drawChart(); });
+}
+
+/* Browser zoom changes devicePixelRatio. Firefox and Safari do not always
+   fire resize for it, so watch the ratio itself; the query has to be
+   re-armed after each change because it only matches one exact ratio. */
+function watchPixelRatio() {
+  const mq = matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+  mq.addEventListener("change", () => { scheduleRedraw(); watchPixelRatio(); }, { once: true });
+}
+
+function initChartSizing() {
+  const canvas = document.getElementById("chart");
+  if (window.ResizeObserver) {
+    new ResizeObserver(scheduleRedraw).observe(canvas);
+  }
+  window.addEventListener("resize", scheduleRedraw);
+  // Fonts finish loading after first paint and change the layout metrics.
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(scheduleRedraw);
+  watchPixelRatio();
+  scheduleRedraw();
+}
+
 loadInfo();
 connect();
 refreshEvents();
+initChartSizing();
 setInterval(refreshEvents, 15000);
 setInterval(renderConnectivity, 1000);
-window.addEventListener("resize", drawChart);
