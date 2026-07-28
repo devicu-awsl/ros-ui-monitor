@@ -1,3 +1,5 @@
-"""RB5009 Monitor - Phase A (Windows-first LAN monitoring app)."""
+"""RB5009 Monitor - Windows LAN monitoring app (Phase A localhost, Phase B LAN)."""
 
-__version__ = "1.1.0"
+# The release workflow rewrites this line to match the release tag, so a built
+# executable reports the same version as the release it came from.
+__version__ = "2.1.0"

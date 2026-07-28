@@ -11,6 +11,7 @@ const state = {
   updatedAt: {},
   reachable: false,
   selectedIface: null,
+  routerHost: "",
   series: new Map(), // iface -> [{t, rx, tx}]
 };
 
@@ -50,11 +51,42 @@ function fmtTime(ts) {
 
 /* ---------- render: cards ---------- */
 
+/* A 401 means the session expired; go back to the login page. */
+function handleUnauthorized(resp) {
+  if (resp.status === 401) {
+    window.location.replace("/login");
+    return true;
+  }
+  return false;
+}
+
+async function loadInfo() {
+  try {
+    const resp = await fetch("/api/v1/info");
+    if (handleUnauthorized(resp) || !resp.ok) return;
+    const info = await resp.json();
+    state.routerHost = info.router_host;
+    document.getElementById("app-info").textContent =
+      `v${info.version}${info.lan_mode ? " · LAN mode" : ""}`;
+    if (document.getElementById("board").textContent === "—") {
+      document.getElementById("board").textContent = info.router_host;
+    }
+    const signout = document.getElementById("signout");
+    if (info.auth_enabled) {
+      signout.hidden = false;
+      signout.addEventListener("click", async () => {
+        await fetch("/api/v1/logout", { method: "POST" });
+        window.location.replace("/login");
+      });
+    }
+  } catch (e) { /* transient */ }
+}
+
 function renderResource() {
   const r = state.resource;
   if (!r) return;
   document.getElementById("identity").textContent = r.identity || r.board_name || "—";
-  document.getElementById("board").textContent = r.board_name || "";
+  document.getElementById("board").textContent = r.board_name || state.routerHost || "";
   document.getElementById("version").textContent = "RouterOS " + (r.version || "—");
   document.getElementById("uptime").textContent = fmtDuration(r.uptime_seconds);
 
@@ -212,7 +244,7 @@ function drawChart() {
 async function refreshEvents() {
   try {
     const resp = await fetch("/api/v1/events?limit=50");
-    if (!resp.ok) return;
+    if (handleUnauthorized(resp) || !resp.ok) return;
     const body = await resp.json();
     const ul = document.getElementById("events");
     ul.innerHTML = "";
@@ -283,6 +315,7 @@ function connect() {
   };
 }
 
+loadInfo();
 connect();
 refreshEvents();
 setInterval(refreshEvents, 15000);

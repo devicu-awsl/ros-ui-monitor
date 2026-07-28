@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in &middot; RB5009 Monitor</title>
+<link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body class="login-body">
+<form class="login-card" id="login-form" autocomplete="on">
+  <h1>RB5009 Monitor</h1>
+  <p class="sub">Sign in to view the dashboard</p>
+
+  <label for="username">Username</label>
+  <input id="username" name="username" type="text" autocomplete="username" required autofocus>
+
+  <label for="password">Password</label>
+  <input id="password" name="password" type="password" autocomplete="current-password" required>
+
+  <button type="submit" id="submit">Sign in</button>
+  <p class="error" id="error" role="alert"></p>
+</form>
+
+<script>
+"use strict";
+const form = document.getElementById("login-form");
+const errorEl = document.getElementById("error");
+const submit = document.getElementById("submit");
+
+form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  errorEl.textContent = "";
+  submit.disabled = true;
+  try {
+    const resp = await fetch("/api/v1/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username: document.getElementById("username").value,
+        password: document.getElementById("password").value,
+      }),
+    });
+    if (resp.ok) {
+      window.location.replace("/");
+      return;
+    }
+    const body = await resp.json().catch(() => ({}));
+    errorEl.textContent = body.detail || "Sign in failed.";
+  } catch (e) {
+    errorEl.textContent = "Cannot reach the monitor service.";
+  } finally {
+    submit.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

@@ -3,13 +3,14 @@
 #
 # Versioning scheme: vX.Y
 #   X = phase number, read from the PHASE file in the repo root
-#       (Phase A -> 1; edit the file to 2 when Phase B starts and the next
-#       release will be v2.1 automatically)
+#       (Phase A -> 1, Phase B -> 2; edit the file when the phase changes)
 #   Y = auto-incremented per release within the phase, starting at 1
-#       (first Phase A release is v1.1, then v1.2, v1.3, ...)
+#       (first Phase B release is v2.1, then v2.2, v2.3, ...)
 #
-# The release tag and title are both vX.Y and the attached executable is
-# named ros-ui-monitor_vX_Y.exe.
+# The release tag and title are both vX.Y. PyInstaller is not a
+# cross-compiler and produces a binary for the runner's CPU, so the x64
+# build is named ros-ui-monitor_vX_Y.exe and the ARM64 build, when its
+# runner is available, is named ros-ui-monitor_vX_Y_arm64.exe.
 
 name: Build and Release Windows exe
 
@@ -26,13 +27,54 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
-    runs-on: windows-latest
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.compute.outputs.version }}
+      base_name: ${{ steps.compute.outputs.base_name }}
+      phase_letter: ${{ steps.compute.outputs.phase_letter }}
     steps:
       - name: Checkout (full history for tags)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Compute next version
+        id: compute
+        shell: bash
+        run: |
+          set -euo pipefail
+          PHASE="$(tr -d '[:space:]' < PHASE)"
+          git fetch --tags --force
+          LATEST_Y="$(git tag -l "v${PHASE}.*" | sed -n "s/^v${PHASE}\.\([0-9]\+\)$/\1/p" | sort -n | tail -1)"
+          if [ -z "$LATEST_Y" ]; then Y=1; else Y=$((LATEST_Y + 1)); fi
+          # Phase number 1 -> A, 2 -> B, ...
+          PHASE_LETTER="$(printf "\\$(printf '%03o' $((64 + PHASE)))")"
+          {
+            echo "version=v${PHASE}.${Y}"
+            echo "base_name=ros-ui-monitor_v${PHASE}_${Y}"
+            echo "phase_letter=${PHASE_LETTER}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Next release: v${PHASE}.${Y} (Phase ${PHASE_LETTER})"
+
+  build:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            arch: amd64
+            suffix: ""
+          - runner: windows-11-arm
+            arch: arm64
+            suffix: "_arm64"
+    runs-on: ${{ matrix.runner }}
+    # The ARM64 runner is not available on every plan; never let it block the
+    # x64 release.
+    continue-on-error: ${{ matrix.arch == 'arm64' }}
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -47,41 +89,147 @@ jobs:
       - name: Run tests
         run: python -m pytest -q
 
-      - name: Compute next version
-        id: version
+      - name: Stamp the release version into the build
         shell: bash
         run: |
           set -euo pipefail
-          PHASE="$(tr -d '[:space:]' < PHASE)"
-          git fetch --tags --force
-          LATEST_Y="$(git tag -l "v${PHASE}.*" | sed -n "s/^v${PHASE}\.\([0-9]\+\)$/\1/p" | sort -n | tail -1)"
-          if [ -z "$LATEST_Y" ]; then
-            Y=1
-          else
-            Y=$((LATEST_Y + 1))
-          fi
-          VERSION="v${PHASE}.${Y}"
-          EXE_NAME="ros-ui-monitor_v${PHASE}_${Y}.exe"
-          echo "version=${VERSION}"   >> "$GITHUB_OUTPUT"
-          echo "exe_name=${EXE_NAME}" >> "$GITHUB_OUTPUT"
-          echo "Next release: ${VERSION} (${EXE_NAME})"
+          VERSION="${{ needs.version.outputs.version }}"
+          sed -i "s/^__version__ = .*/__version__ = \"${VERSION#v}\"/" app/__init__.py
+          grep '^__version__' app/__init__.py
 
       - name: Build executable with PyInstaller
         run: pyinstaller rb5009-monitor.spec --clean --noconfirm
 
-      - name: Rename executable
+      - name: Name executable for this architecture
         shell: bash
-        run: mv "dist/rb5009-monitor.exe" "dist/${{ steps.version.outputs.exe_name }}"
+        run: mv "dist/rb5009-monitor.exe" "dist/${{ needs.version.outputs.base_name }}${{ matrix.suffix }}.exe"
 
+      # A green PyInstaller build can still produce a broken executable, so
+      # check that it starts and serves its bundled dashboard, not just that
+      # it was created.
       - name: Smoke-test executable
         shell: bash
-        run: '"dist/${{ steps.version.outputs.exe_name }}" --version'
+        run: |
+          set -euo pipefail
+          EXE="dist/${{ needs.version.outputs.base_name }}${{ matrix.suffix }}.exe"
+          PORT=8971
+
+          # Imports resolve inside the bundle (a bad entry point breaks this).
+          "$EXE" --version
+
+          # The bundled static dashboard is reachable, proving app/static was
+          # packaged and is found under the PyInstaller extraction path.
+          RBMON_DATA_DIR="$(mktemp -d)" "$EXE" --no-browser --port "$PORT" &
+          APP_PID=$!
+          trap 'kill "$APP_PID" 2>/dev/null || true' EXIT
+
+          READY=""
+          for _ in $(seq 1 30); do
+            if curl -fsS "http://127.0.0.1:${PORT}/readyz" >/dev/null 2>&1; then READY=1; break; fi
+            sleep 1
+          done
+          [ -n "$READY" ] || { echo "executable did not become ready"; exit 1; }
+
+          for path in / /static/css/style.css /static/js/app.js; do
+            code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}${path}")"
+            [ "$code" = "200" ] || { echo "GET ${path} returned ${code}, expected 200"; exit 1; }
+            echo "  GET ${path} -> ${code}"
+          done
+          echo "smoke test passed"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: exe-${{ matrix.arch }}
+          path: dist/*.exe
+          if-no-files-found: error
+
+  release:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download built executables
+        uses: actions/download-artifact@v4
+        with:
+          pattern: exe-*
+          merge-multiple: true
+          path: dist
+
+      - name: List artifacts
+        run: ls -l dist
+
+      - name: Write release notes
+        shell: bash
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          BASE_NAME: ${{ needs.version.outputs.base_name }}
+          PHASE_LETTER: ${{ needs.version.outputs.phase_letter }}
+        run: |
+          set -euo pipefail
+          # Quoted heredoc: nothing expands here, placeholders are filled in below.
+          cat > notes.template.md <<'TEMPLATE'
+          RB5009 Monitor @VERSION@ (Phase @PHASE_LETTER@)
+
+          ## Downloads
+
+          - `@BASE_NAME@.exe` — 64-bit **x64 (amd64)** build, for most PCs
+          @ARM_LINE@
+
+          ## Installation
+
+          There is no installer. Download the executable, put it wherever you like
+          (for example `C:\Program Files\RB5009Monitor`), and run it. Settings and the
+          SQLite database are written to `C:\ProgramData\RB5009Monitor`, never inside
+          the executable, so upgrading is just replacing the .exe.
+
+          ## System requirements
+
+          | Requirement | Supported |
+          | --- | --- |
+          | Operating system | Windows 10 or Windows 11 |
+          | Windows installation | 64-bit: x64 (x86-family) or ARM64 |
+          | CPU architecture | **amd64 (x64)** or **arm64** |
+          | Python | Not required — bundled inside the executable |
+          | Network | LAN access to the RB5009 (default `192.168.88.1`) |
+
+          PyInstaller is not a cross-compiler, so each executable targets one CPU
+          architecture. Install the x64 (amd64) build on an amd64 PC. On an arm64 PC,
+          use the native ARM64 build when one is attached above; otherwise the x64
+          build runs under the x64 emulation built into Windows on ARM. A 32-bit x86
+          build is not published — a 64-bit Windows installation is required.
+
+          ## Usage
+
+          ```text
+          rb5009-monitor.exe                 Phase A: this PC only (127.0.0.1:8000)
+          rb5009-monitor.exe --lan           Phase B: LAN mode for tablets and phones
+          rb5009-monitor.exe --hash-password Generate a dashboard password hash
+          rb5009-monitor.exe --config "C:\ProgramData\RB5009Monitor\config.env"
+          ```
+
+          In LAN mode, set a dashboard password and allow the executable through
+          Windows Firewall on the private network.
+          TEMPLATE
+
+          if [ -f "dist/${BASE_NAME}_arm64.exe" ]; then
+            ARM_LINE="- \`${BASE_NAME}_arm64.exe\` — native **ARM64** build, for Windows on ARM PCs"
+          else
+            ARM_LINE="- No native ARM64 build in this release; on Windows on ARM use the x64 build above, which runs under x64 emulation."
+          fi
+
+          sed -e "s|@VERSION@|${VERSION}|g" \
+              -e "s|@BASE_NAME@|${BASE_NAME}|g" \
+              -e "s|@PHASE_LETTER@|${PHASE_LETTER}|g" \
+              -e "s|@ARM_LINE@|${ARM_LINE}|g" \
+              notes.template.md > notes.md
+          cat notes.md
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.version }}
-          name: ${{ steps.version.outputs.version }}
+          tag_name: ${{ needs.version.outputs.version }}
+          name: ${{ needs.version.outputs.version }}
           target_commitish: ${{ github.sha }}
-          files: dist/${{ steps.version.outputs.exe_name }}
+          files: dist/*.exe
+          body_path: notes.md
           generate_release_notes: true

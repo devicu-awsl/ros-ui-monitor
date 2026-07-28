@@ -6,12 +6,12 @@ Configuration comes from (lowest to highest precedence):
   3. Process environment variables
   4. Command-line arguments
 
-RB5009 assumptions for Phase A:
+RB5009 assumptions:
   - Router address: 192.168.88.1
   - RouterOS API service ports: TCP 8728 (api) and 8729 (api-ssl, secure)
   - RouterOS REST API is served by the www-ssl service (HTTPS). The REST
     base URL is configurable; the API ports are recorded so the UI can show
-    the expected service layout and future adapters can use them.
+    the expected service layout.
 """
 
 from __future__ import annotations
@@ -26,10 +26,10 @@ class ConfigError(ValueError):
 
 
 def _default_data_dir() -> Path:
+    """Mutable data lives outside the PyInstaller bundle, which is temporary."""
     if os.name == "nt":
-        base = os.environ.get("PROGRAMDATA", r"C:\ProgramData")
-        return Path(base) / "RB5009Monitor"
-    return Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))) / "rb5009-monitor"
+        return Path(os.environ.get("PROGRAMDATA", r"C:\ProgramData")) / "RB5009Monitor"
+    return Path.home() / ".rb5009-monitor"  # dev machines only; target is Windows
 
 
 @dataclass
@@ -50,6 +50,16 @@ class Settings:
     bind_port: int = 8000
     open_browser: bool = True
 
+    # Dashboard authentication (Phase B / LAN mode).
+    # Supply auth_password_hash (preferred, generate with --hash-password) or
+    # auth_password; either one enables authentication.
+    auth_username: str = "admin"
+    auth_password: str = ""
+    auth_password_hash: str = ""
+    session_hours: float = 12.0
+    login_max_attempts: int = 5
+    login_window_seconds: float = 300.0
+
     # Storage
     data_dir: Path = field(default_factory=_default_data_dir)
 
@@ -68,6 +78,14 @@ class Settings:
     def db_path(self) -> Path:
         return self.data_dir / "monitor.db"
 
+    @property
+    def lan_mode(self) -> bool:
+        return self.bind_host in ("0.0.0.0", "::")
+
+    @property
+    def auth_enabled(self) -> bool:
+        return bool(self.auth_password_hash or self.auth_password)
+
     def validate(self) -> None:
         if not self.router_url.startswith(("http://", "https://")):
             raise ConfigError(f"RBMON_ROUTER_URL must start with http:// or https:// (got {self.router_url!r})")
@@ -80,6 +98,10 @@ class Settings:
             raise ConfigError(f"RBMON_ROUTER_CA_FILE not found: {self.router_ca_file}")
         if self.retention_hours < 1:
             raise ConfigError("RBMON_RETENTION_HOURS must be >= 1")
+        if self.auth_enabled and not self.auth_username:
+            raise ConfigError("RBMON_AUTH_USERNAME must not be empty when a password is set")
+        if self.session_hours <= 0:
+            raise ConfigError("RBMON_SESSION_HOURS must be > 0")
 
 
 def _parse_env_file(path: Path) -> dict[str, str]:
@@ -129,6 +151,12 @@ def load_settings(config_file: str | None = None, env: dict[str, str] | None = N
         router_timeout=float(get("RBMON_ROUTER_TIMEOUT", "10")),
         bind_host=get("RBMON_BIND_HOST", "127.0.0.1"),
         bind_port=int(get("RBMON_BIND_PORT", "8000")),
+        auth_username=get("RBMON_AUTH_USERNAME", "admin"),
+        auth_password=get("RBMON_AUTH_PASSWORD", ""),
+        auth_password_hash=get("RBMON_AUTH_PASSWORD_HASH", ""),
+        session_hours=float(get("RBMON_SESSION_HOURS", "12")),
+        login_max_attempts=int(get("RBMON_LOGIN_MAX_ATTEMPTS", "5")),
+        login_window_seconds=float(get("RBMON_LOGIN_WINDOW_SECONDS", "300")),
         data_dir=Path(get("RBMON_DATA_DIR", str(_default_data_dir()))),
         poll_resource=float(get("RBMON_POLL_RESOURCE", "5")),
         poll_health=float(get("RBMON_POLL_HEALTH", "15")),

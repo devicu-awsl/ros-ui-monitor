@@ -1,4 +1,5 @@
-# PyInstaller spec for the Phase A Windows single-file executable.
+# PyInstaller spec for the Windows single-file executable.
+# The same executable serves Phase A (localhost) and Phase B (--lan).
 # Build on Windows:  pyinstaller rb5009-monitor.spec
 # Output:            dist/rb5009-monitor.exe
 #
@@ -6,6 +7,10 @@
 # script as __main__ with no parent package, so a module from inside the "app"
 # package cannot be used directly - its relative imports fail at startup with
 # "attempted relative import with no known parent package".
+#
+# Paths are anchored to SPECPATH so the build works from any directory.
+# Phase A/B serve a plain static dashboard, so app/static is the only data
+# directory to bundle; there is no template directory.
 
 import os
 
@@ -16,7 +21,6 @@ a = Analysis(
     pathex=[ROOT],
     binaries=[],
     datas=[
-        (os.path.join(ROOT, "app", "templates"), "app/templates"),
         (os.path.join(ROOT, "app", "static"), "app/static"),
     ],
     hiddenimports=[

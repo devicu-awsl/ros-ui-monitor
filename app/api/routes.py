@@ -10,9 +10,23 @@ import time
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
+from .. import __version__
+
 router = APIRouter()
 
 _SSE_KEEPALIVE_SECONDS = 20
+
+
+@router.get("/api/v1/info")
+async def info(request: Request) -> dict:
+    """Static facts the dashboard header needs. No secrets."""
+    settings = request.app.state.settings
+    return {
+        "version": __version__,
+        "router_host": settings.router_host,
+        "lan_mode": settings.lan_mode,
+        "auth_enabled": settings.auth_enabled,
+    }
 
 
 @router.get("/api/v1/status")
