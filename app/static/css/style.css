@@ -1,0 +1,105 @@
+:root {
+  --bg: #0f172a;
+  --panel: #1e293b;
+  --card: #1e293b;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --accent: #38bdf8;
+  --rx: #38bdf8;
+  --tx: #fb923c;
+  --ok: #4ade80;
+  --warn: #f87171;
+  --border: #334155;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.8rem 1.2rem;
+  border-bottom: 1px solid var(--border);
+}
+.brand h1 { font-size: 1.15rem; display: inline; }
+.phase { color: var(--muted); font-size: 0.8rem; margin-left: 0.6rem; }
+.conn { display: flex; align-items: center; gap: 0.45rem; font-size: 0.85rem; color: var(--muted); }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.dot.online { background: var(--ok); }
+.dot.offline { background: var(--warn); }
+
+main { flex: 1; padding: 1rem 1.2rem; display: grid; gap: 1rem; max-width: 1200px; width: 100%; margin: 0 auto; }
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 1rem;
+}
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.9rem 1rem;
+}
+.card h2 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 0.5rem; }
+.big { font-size: 1.55rem; font-weight: 600; margin-bottom: 0.25rem; }
+.sub { font-size: 0.8rem; color: var(--muted); }
+
+.meter { height: 6px; background: var(--border); border-radius: 3px; margin-top: 0.6rem; overflow: hidden; }
+.bar { height: 100%; width: 0; background: var(--accent); border-radius: 3px; transition: width 0.4s; }
+.bar.hot { background: var(--warn); }
+
+.health { font-size: 0.85rem; display: grid; gap: 0.25rem; }
+.health div { display: flex; justify-content: space-between; }
+.health .name { color: var(--muted); }
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.9rem 1rem;
+}
+.panel-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.6rem; }
+.panel-head h2 { font-size: 0.95rem; }
+.age { font-size: 0.75rem; color: var(--muted); }
+.age.stale { color: var(--warn); }
+
+canvas { width: 100%; }
+.legend { display: flex; gap: 1.2rem; font-size: 0.78rem; color: var(--muted); margin-top: 0.4rem; }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 0.35rem; }
+.swatch.rx { background: var(--rx); }
+.swatch.tx { background: var(--tx); }
+
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+th, td { text-align: left; padding: 0.42rem 0.6rem; white-space: nowrap; }
+th { color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--border); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+tbody tr { border-bottom: 1px solid var(--border); cursor: pointer; }
+tbody tr:hover { background: rgba(56, 189, 248, 0.08); }
+tbody tr.selected { background: rgba(56, 189, 248, 0.15); }
+.state { font-size: 0.75rem; padding: 0.1rem 0.5rem; border-radius: 10px; }
+.state.up { background: rgba(74, 222, 128, 0.15); color: var(--ok); }
+.state.down { background: rgba(248, 113, 113, 0.15); color: var(--warn); }
+.state.disabled { background: var(--border); color: var(--muted); }
+td.err { color: var(--warn); }
+
+.events { list-style: none; font-size: 0.83rem; display: grid; gap: 0.35rem; max-height: 260px; overflow-y: auto; }
+.events li { display: flex; gap: 0.7rem; align-items: baseline; }
+.events .ts { color: var(--muted); font-size: 0.75rem; flex-shrink: 0; }
+.events .warning { color: var(--warn); }
+
+footer { padding: 0.7rem 1.2rem; font-size: 0.72rem; color: var(--muted); border-top: 1px solid var(--border); }
+
+@media (max-width: 640px) {
+  header { flex-direction: column; gap: 0.4rem; align-items: flex-start; }
+  main { padding: 0.7rem; }
+}

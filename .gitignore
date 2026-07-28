@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.pytest_cache/
+
+# PyInstaller
+build/
+dist/
+
+# Runtime data
+data/*
+!data/.gitkeep
+*.db
+*.db-wal
+*.db-shm
+
+# Local configuration (never commit secrets)
+config/config.env
+*.local.env
+
+# OS
+.DS_Store
+Thumbs.db

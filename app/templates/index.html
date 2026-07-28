@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RB5009 Monitor</title>
+<link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+<header>
+  <div class="brand">
+    <h1>RB5009 Monitor</h1>
+    <span class="phase">Phase A &middot; v{{ version }}</span>
+  </div>
+  <div class="conn">
+    <span id="conn-dot" class="dot offline"></span>
+    <span id="conn-text">connecting&hellip;</span>
+  </div>
+</header>
+
+<main>
+  <section class="cards">
+    <div class="card">
+      <h2>Router</h2>
+      <div class="big" id="identity">&mdash;</div>
+      <div class="sub" id="board">{{ router_host }}</div>
+      <div class="sub" id="version">RouterOS &mdash;</div>
+      <div class="sub">Uptime: <span id="uptime">&mdash;</span></div>
+    </div>
+    <div class="card">
+      <h2>CPU</h2>
+      <div class="big" id="cpu-load">&mdash;</div>
+      <div class="sub" id="cpu-info">&mdash;</div>
+      <div class="meter"><div id="cpu-bar" class="bar"></div></div>
+    </div>
+    <div class="card">
+      <h2>Memory</h2>
+      <div class="big" id="mem-used">&mdash;</div>
+      <div class="sub" id="mem-info">&mdash;</div>
+      <div class="meter"><div id="mem-bar" class="bar"></div></div>
+    </div>
+    <div class="card">
+      <h2>Health</h2>
+      <div id="health-list" class="health">&mdash;</div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>Throughput <span class="sub" id="chart-iface"></span></h2>
+      <span class="age" id="iface-age"></span>
+    </div>
+    <canvas id="chart" height="220"></canvas>
+    <div class="legend">
+      <span><i class="swatch rx"></i>RX</span>
+      <span><i class="swatch tx"></i>TX</span>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Interfaces</h2></div>
+    <div class="table-wrap">
+      <table id="iface-table">
+        <thead>
+          <tr><th>Name</th><th>Type</th><th>State</th><th>RX rate</th><th>TX rate</th>
+              <th>RX err</th><th>TX err</th><th>Drops</th><th>Link downs</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Recent events</h2></div>
+    <ul id="events" class="events"></ul>
+  </section>
+</main>
+
+<footer>
+  rb5009-monitor Phase A &middot; data is served from the local collector cache; browsers never talk to the router directly.
+</footer>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,118 @@
+"""Application entry point.
+
+Supports the Phase A command lines from the build plan:
+
+    rb5009-monitor.exe
+    rb5009-monitor.exe --host 0.0.0.0 --port 8000
+    rb5009-monitor.exe --no-browser
+    rb5009-monitor.exe --config "C:\\ProgramData\\RB5009Monitor\\config.env"
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import sys
+import threading
+import time
+import urllib.request
+import webbrowser
+from pathlib import Path
+
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+
+from . import __version__
+from .api.routes import router as api_router
+from .config import ConfigError, Settings, load_settings
+from .lifespan import lifespan
+
+
+def _resource_dir() -> Path:
+    """Locate bundled templates/static both in source and PyInstaller runs."""
+    if getattr(sys, "_MEIPASS", None):
+        return Path(sys._MEIPASS) / "app"  # type: ignore[attr-defined]
+    return Path(__file__).parent
+
+
+def create_app(settings: Settings) -> FastAPI:
+    app = FastAPI(title="RB5009 Monitor", version=__version__, lifespan=lifespan)
+    app.state.settings = settings
+    app.state.ready = False
+
+    base = _resource_dir()
+    templates = Jinja2Templates(directory=str(base / "templates"))
+    app.mount("/static", StaticFiles(directory=str(base / "static")), name="static")
+    app.include_router(api_router)
+
+    @app.get("/", response_class=HTMLResponse)
+    async def index(request: Request) -> HTMLResponse:
+        return templates.TemplateResponse(request, "index.html", {
+            "version": __version__,
+            "router_host": settings.router_host,
+        })
+
+    return app
+
+
+def _open_browser_when_ready(url: str, timeout: float = 30.0) -> None:
+    deadline = time.time() + timeout
+    ready_url = url.rstrip("/") + "/readyz"
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(ready_url, timeout=2) as resp:
+                if resp.status == 200:
+                    webbrowser.open(url)
+                    return
+        except Exception:
+            pass
+        time.sleep(0.5)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="rb5009-monitor",
+                                     description="LAN monitoring dashboard for a MikroTik RB5009")
+    parser.add_argument("--host", help="bind address (default 127.0.0.1; use 0.0.0.0 for LAN mode)")
+    parser.add_argument("--port", type=int, help="bind port (default 8000)")
+    parser.add_argument("--config", help="path to a .env-style configuration file")
+    parser.add_argument("--no-browser", action="store_true", help="do not open the browser on startup")
+    parser.add_argument("--version", action="version", version=f"rb5009-monitor {__version__}")
+    args = parser.parse_args(argv)
+
+    try:
+        settings = load_settings(config_file=args.config)
+    except ConfigError as exc:
+        print(f"Configuration error: {exc}", file=sys.stderr)
+        return 2
+
+    if args.host:
+        settings.bind_host = args.host
+    if args.port:
+        settings.bind_port = args.port
+    if args.no_browser:
+        settings.open_browser = False
+    settings.validate()
+
+    logging.basicConfig(
+        level=getattr(logging, settings.log_level, logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+    app = create_app(settings)
+
+    display_host = "127.0.0.1" if settings.bind_host in ("0.0.0.0", "::") else settings.bind_host
+    url = f"http://{display_host}:{settings.bind_port}/"
+    if settings.open_browser:
+        threading.Thread(target=_open_browser_when_ready, args=(url,), daemon=True).start()
+
+    import uvicorn
+
+    uvicorn.run(app, host=settings.bind_host, port=settings.bind_port,
+                log_level=settings.log_level.lower())
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
