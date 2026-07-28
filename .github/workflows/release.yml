@@ -177,10 +177,27 @@ jobs:
 
           ## Installation
 
-          There is no installer. Download the executable, put it wherever you like
-          (for example `C:\Program Files\RB5009Monitor`), and run it. Settings and the
-          SQLite database are written to `C:\ProgramData\RB5009Monitor`, never inside
-          the executable, so upgrading is just replacing the .exe.
+          There is no installer. Download the executable, put it in a folder of your
+          choice, and run it. Upgrading is just replacing the .exe.
+
+          Settings and the SQLite database are kept outside the executable, in one of
+          two places:
+
+          - **Portable** — put `config.env` next to the .exe and the database is kept
+            in that same folder, so the folder can be moved or deleted as a unit.
+            `--portable` does the same without a config file. The folder must be
+            writable, so avoid `C:\Program Files` unless you run elevated.
+          - **Default** — otherwise `C:\ProgramData\RB5009Monitor`.
+
+          ## Uninstalling
+
+          Nothing is installed system-wide and nothing is written to the registry.
+          The Python runtime and every dependency are bundled inside the .exe, so
+          deleting it removes them; there is no `pip uninstall` step. Delete the data
+          folder separately if you used the `C:\ProgramData` default. On each run the
+          bundle is extracted to `%TEMP%\_MEIxxxxxx` and removed on a clean exit; a
+          hard kill (Task Manager, crash, power loss) leaves that folder behind, and
+          any `_MEI*` folder in `%TEMP%` is safe to delete while the app is stopped.
 
           ## System requirements
 

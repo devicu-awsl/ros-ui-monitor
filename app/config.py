@@ -17,12 +17,27 @@ RB5009 assumptions:
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+
+CONFIG_FILENAME = "config.env"
 
 
 class ConfigError(ValueError):
     """Raised when configuration is invalid."""
+
+
+def exe_dir() -> Path:
+    """Directory holding the running executable.
+
+    For a PyInstaller one-file build this must come from sys.executable: the
+    module files live in a temporary extraction directory that is deleted on
+    exit, so __file__ would point somewhere useless for persistent data.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent  # project root when run from source
 
 
 def _default_data_dir() -> Path:
@@ -30,6 +45,40 @@ def _default_data_dir() -> Path:
     if os.name == "nt":
         return Path(os.environ.get("PROGRAMDATA", r"C:\ProgramData")) / "RB5009Monitor"
     return Path.home() / ".rb5009-monitor"  # dev machines only; target is Windows
+
+
+def find_config_file(explicit: str | None = None, env: dict[str, str] | None = None) -> Path | None:
+    """Locate the configuration file, preferring the most explicit source.
+
+    A config.env sitting next to the executable also switches the application
+    into portable mode, so a folder holding the .exe and its config is
+    self-contained and can live on a USB stick.
+    """
+    env = dict(env if env is not None else os.environ)
+    if explicit:
+        path = Path(explicit)
+        if not path.is_file():
+            raise ConfigError(f"Config file not found: {path}")
+        return path
+    if env.get("RBMON_CONFIG"):
+        path = Path(env["RBMON_CONFIG"])
+        if not path.is_file():
+            raise ConfigError(f"Config file not found: {path}")
+        return path
+    for candidate in (exe_dir() / CONFIG_FILENAME, _default_data_dir() / CONFIG_FILENAME):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def is_portable_config(config_path: Path | None) -> bool:
+    """True when the config file sits beside the executable."""
+    if config_path is None:
+        return False
+    try:
+        return config_path.resolve().parent == exe_dir()
+    except OSError:
+        return False
 
 
 @dataclass
@@ -119,16 +168,21 @@ def _parse_env_file(path: Path) -> dict[str, str]:
 _BOOL_TRUE = {"1", "true", "yes", "on"}
 
 
-def load_settings(config_file: str | None = None, env: dict[str, str] | None = None) -> Settings:
+def load_settings(config_file: str | None = None, env: dict[str, str] | None = None,
+                  portable: bool = False) -> Settings:
+    """Build Settings from the config file, environment and portable flag.
+
+    Data directory precedence: RBMON_DATA_DIR, then the executable's own
+    directory in portable mode, then the per-machine default
+    (C:\\ProgramData\\RB5009Monitor on Windows).
+    """
     env = dict(env if env is not None else os.environ)
-    file_path = config_file or env.get("RBMON_CONFIG")
-    if file_path:
-        p = Path(file_path)
-        if not p.is_file():
-            raise ConfigError(f"Config file not found: {p}")
-        merged = _parse_env_file(p)
+    config_path = find_config_file(config_file, env)
+    if config_path is not None:
+        merged = _parse_env_file(config_path)
         merged.update(env)  # process env wins over file
         env = merged
+    portable = portable or is_portable_config(config_path)
 
     def get(key: str, default: str) -> str:
         return env.get(key, default)
@@ -157,7 +211,7 @@ def load_settings(config_file: str | None = None, env: dict[str, str] | None = N
         session_hours=float(get("RBMON_SESSION_HOURS", "12")),
         login_max_attempts=int(get("RBMON_LOGIN_MAX_ATTEMPTS", "5")),
         login_window_seconds=float(get("RBMON_LOGIN_WINDOW_SECONDS", "300")),
-        data_dir=Path(get("RBMON_DATA_DIR", str(_default_data_dir()))),
+        data_dir=Path(get("RBMON_DATA_DIR", str(exe_dir() if portable else _default_data_dir()))),
         poll_resource=float(get("RBMON_POLL_RESOURCE", "5")),
         poll_health=float(get("RBMON_POLL_HEALTH", "15")),
         poll_interfaces=float(get("RBMON_POLL_INTERFACES", "3")),

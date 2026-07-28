@@ -137,6 +137,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="Phase B LAN mode: bind all interfaces so tablets and phones can connect")
     parser.add_argument("--port", type=int, help="bind port (default 8000)")
     parser.add_argument("--config", help="path to a .env-style configuration file")
+    parser.add_argument("--portable", action="store_true",
+                        help="keep config.env and the database next to the executable instead of "
+                             "in ProgramData (implied when a config.env sits beside the exe)")
     parser.add_argument("--no-browser", action="store_true", help="do not open the browser on startup")
     parser.add_argument("--hash-password", action="store_true",
                         help="prompt for a dashboard password and print its hash, then exit")
@@ -147,7 +150,7 @@ def main(argv: list[str] | None = None) -> int:
         return _hash_password_interactively()
 
     try:
-        settings = load_settings(config_file=args.config)
+        settings = load_settings(config_file=args.config, portable=args.portable)
         if args.lan:
             settings.bind_host = "0.0.0.0"
         if args.host:
@@ -161,10 +164,25 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Configuration error: {exc}", file=sys.stderr)
         return 2
 
+    # Fail early and clearly rather than part-way through startup. Writing next
+    # to the executable does not work under C:\Program Files without elevation.
+    try:
+        settings.data_dir.mkdir(parents=True, exist_ok=True)
+        probe = settings.data_dir / ".write-test"
+        probe.touch()
+        probe.unlink()
+    except OSError as exc:
+        print(f"Cannot write to the data directory {settings.data_dir}: {exc}\n"
+              f"Move the executable somewhere writable, or set RBMON_DATA_DIR to a writable folder.",
+              file=sys.stderr)
+        return 2
+
     logging.basicConfig(
         level=getattr(logging, settings.log_level, logging.INFO),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+
+    log.info("Data directory: %s", settings.data_dir)
 
     app = create_app(settings)
 

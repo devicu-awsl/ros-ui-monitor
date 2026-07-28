@@ -39,6 +39,23 @@ header {
 
 main { flex: 1; padding: 1rem 1.2rem; display: grid; gap: 1rem; max-width: 1200px; width: 100%; margin: 0 auto; }
 
+/* Shown while the router cannot be reached, with the reason so a first-time
+   setup problem is diagnosable without reading the log. */
+.banner {
+  max-width: 1200px;
+  width: 100%;
+  margin: 1rem auto -0.4rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--warn);
+  border-left-width: 4px;
+  border-radius: 8px;
+  background: rgba(248, 113, 113, 0.08);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+.banner .reason { color: var(--warn); word-break: break-word; }
+.banner .hint { color: var(--muted); display: block; margin-top: 0.3rem; }
+
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));

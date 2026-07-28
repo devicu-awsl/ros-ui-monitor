@@ -105,11 +105,59 @@ Notes on what LAN mode does and does not protect:
 
 ### Configuration
 
-Copy `config/config.example.env`, fill in a dedicated read-only RouterOS
-monitoring user, and pass it with `--config` (or set `RBMON_*` environment
-variables — the environment overrides the file). Data is stored outside the
-executable, by default in `C:\ProgramData\RB5009Monitor\`, because PyInstaller
-extracts the bundle to a temporary directory on every run.
+Copy `config/config.example.env` to `config.env`, fill in a dedicated
+read-only RouterOS monitoring user, and put it in one of the places below (or
+set `RBMON_*` environment variables — the environment overrides the file).
+
+The config file is looked for in this order:
+
+1. `--config <path>`
+2. `RBMON_CONFIG=<path>`
+3. **`config.env` next to `rb5009-monitor.exe`** → portable mode
+4. `C:\ProgramData\RB5009Monitor\config.env`
+
+### Portable mode (keep everything next to the .exe)
+
+Put `config.env` in the same folder as `rb5009-monitor.exe` and the database
+goes there too, instead of `C:\ProgramData\RB5009Monitor\`:
+
+```text
+D:\RB5009Monitor\
+├── rb5009-monitor.exe
+├── config.env          <- presence of this file enables portable mode
+└── monitor.db          <- created here on first run
+```
+
+`--portable` forces the same behaviour without a config file, and
+`RBMON_DATA_DIR` overrides the location entirely. The startup log always
+prints the directory in use.
+
+Portable mode suits a USB stick or a folder you can delete in one go. Two
+caveats: the folder must be writable, so avoid `C:\Program Files\` unless you
+run elevated (the app checks at startup and exits with a clear message), and
+anyone who can read the folder can read `config.env`, so prefer
+`RBMON_AUTH_PASSWORD_HASH` over a plaintext password.
+
+### Uninstalling
+
+There is no installer and nothing is written to the registry, so removal is
+just deleting files:
+
+| What | Where | Removed with the .exe? |
+| --- | --- | --- |
+| Python runtime and all packages | bundled **inside** the .exe | Yes |
+| `config.env`, `monitor.db` | portable mode: beside the .exe | Yes, delete the folder |
+| `config.env`, `monitor.db` | default: `C:\ProgramData\RB5009Monitor\` | **No** — delete separately |
+| Temporary extraction folder | `%TEMP%\_MEIxxxxxx` | Yes on clean exit; see below |
+
+The application never installs Python or site-packages on the machine — every
+dependency lives inside the executable, so no `pip uninstall` step exists.
+
+On each run PyInstaller extracts the bundle to `%TEMP%\_MEIxxxxxx` and deletes
+it on a clean exit (Ctrl+C or closing the window). If the process is killed
+hard — Task Manager, a crash, power loss — that folder is orphaned and stays
+behind at roughly 25 MB per occurrence. It is safe to delete any `_MEI*`
+folder in `%TEMP%` while the application is not running.
 
 Create the monitoring user on the router with a custom group (avoid the
 built-in `read` group) limited to `rest-api` + `read`, restricted to the

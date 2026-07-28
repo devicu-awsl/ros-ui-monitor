@@ -1,4 +1,4 @@
-/* RB5009 Monitor - Phase A dashboard.
+/* RB5009 Monitor dashboard.
  * Receives state over SSE; keeps a rolling throughput window per interface
  * and renders a self-contained canvas chart (no external chart library, so
  * the dashboard works with no internet access on the LAN). */
@@ -12,6 +12,7 @@ const state = {
   reachable: false,
   selectedIface: null,
   routerHost: "",
+  lastError: null,
   series: new Map(), // iface -> [{t, rx, tx}]
 };
 
@@ -259,6 +260,42 @@ async function refreshEvents() {
 
 /* ---------- staleness + connectivity ---------- */
 
+/* Turn a collector error into something actionable during first-time setup. */
+function connectionHint(error) {
+  const e = (error || "").toLowerCase();
+  if (e.includes("401") || e.includes("credential")) {
+    return "Check RBMON_ROUTER_USERNAME and RBMON_ROUTER_PASSWORD.";
+  }
+  if (e.includes("403")) {
+    return "The router refused the request. Check the monitoring user's group has the rest-api and read policies.";
+  }
+  if (e.includes("certificate") || e.includes("ssl") || e.includes("tls")) {
+    return "TLS verification failed. Set RBMON_ROUTER_CA_FILE to the router's CA certificate.";
+  }
+  if (e.includes("timeout") || e.includes("timed out")) {
+    return "The router did not answer in time. Check it is powered on and reachable from this PC.";
+  }
+  return "Check RBMON_ROUTER_URL, the monitoring credentials, and that the RouterOS www-ssl service is enabled.";
+}
+
+function renderBanner() {
+  const banner = document.getElementById("banner");
+  if (state.reachable) {
+    banner.hidden = true;
+    return;
+  }
+  banner.hidden = false;
+  banner.innerHTML =
+    `<span class="reason">Cannot reach the router${state.lastError ? ": " + escapeHtml(state.lastError) : "."}</span>` +
+    `<span class="hint">${escapeHtml(connectionHint(state.lastError))}</span>`;
+}
+
+function escapeHtml(s) {
+  const div = document.createElement("div");
+  div.textContent = s;
+  return div.innerHTML;
+}
+
 function renderConnectivity() {
   const dot = document.getElementById("conn-dot");
   const text = document.getElementById("conn-text");
@@ -269,6 +306,7 @@ function renderConnectivity() {
   } else {
     text.textContent = age != null ? `router unreachable · data ${Math.round(age)}s old` : "router unreachable";
   }
+  renderBanner();
   const ageEl = document.getElementById("iface-age");
   if (age != null) {
     ageEl.textContent = `updated ${Math.round(age)}s ago`;
@@ -290,6 +328,7 @@ function applyGroup(group, data, updatedAt) {
   }
   else if (group === "connectivity") {
     state.reachable = data.reachable;
+    state.lastError = data.error || null;
     if (!data.reachable) refreshEvents();
   }
   renderConnectivity();
@@ -300,6 +339,7 @@ function connect() {
   es.addEventListener("snapshot", (e) => {
     const snap = JSON.parse(e.data);
     state.reachable = snap.router_reachable;
+    state.lastError = snap.last_error || null;
     for (const [group, entry] of Object.entries(snap.groups || {})) {
       if (entry) applyGroup(group, entry.data, entry.updated_at);
     }
